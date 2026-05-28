@@ -282,6 +282,15 @@
                   </el-button>
                 </div>
               </div>
+              <div class="setting-item">
+                <div><span>{{ $t('targetForwardRules') }}</span></div>
+                <div class="forward">
+                  <span>{{ forwardRulesSummary }}</span>
+                  <el-button class="opt-button" size="small" type="primary" @click="openTargetForwardRules">
+                    <Icon icon="fluent:settings-48-regular" width="18" height="18"/>
+                  </el-button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -633,6 +642,78 @@
           </div>
         </template>
       </el-dialog>
+      <el-dialog
+          v-model="targetForwardRulesShow"
+          class="target-forward-dialog"
+          :title="$t('targetForwardRules')"
+      >
+        <div class="target-rule-layout">
+          <div class="target-rule-toolbar">
+            <el-select v-model="currentForwardRuleIndex" :placeholder="$t('targetEmail')" filterable>
+              <el-option
+                  v-for="(item, index) in forwardRules"
+                  :key="`${index}-${item.email}`"
+                  :label="item.email || $t('targetEmail')"
+                  :value="index"
+              />
+            </el-select>
+            <el-button type="primary" @click="addForwardRule">
+              <Icon icon="material-symbols:add-rounded" width="16" height="16"/>
+              {{ $t('add') }}
+            </el-button>
+          </div>
+          <div v-if="currentForwardRule" class="target-rule-form">
+            <el-input :placeholder="$t('targetEmail')" v-model="currentForwardRule.email"/>
+            <el-input-tag
+                tag-type="warning"
+                :placeholder="$t('toBotTokenDesc')"
+                v-model="currentForwardRule.tgChatIds"
+                @add-tag="val => addForwardRuleTag('tgChatIds', val, 'number')"
+            />
+            <el-input-tag
+                tag-type="success"
+                :placeholder="$t('tgAdminIdsDesc')"
+                v-model="currentForwardRule.adminIds"
+                @add-tag="val => addForwardRuleTag('adminIds', val, 'number')"
+            />
+            <el-input-tag
+                :placeholder="$t('senderWhitelistDesc')"
+                v-model="currentForwardRule.senderWhitelist"
+                @add-tag="val => addForwardRuleTag('senderWhitelist', val)"
+            />
+            <el-input-tag
+                tag-type="success"
+                :placeholder="$t('keywordWhitelistDesc')"
+                v-model="currentForwardRule.keywordWhitelist"
+                @add-tag="val => addForwardRuleTag('keywordWhitelist', val)"
+            />
+            <el-input-tag
+                tag-type="danger"
+                :placeholder="$t('keywordBlacklistDesc')"
+                v-model="currentForwardRule.keywordBlacklist"
+                @add-tag="val => addForwardRuleTag('keywordBlacklist', val)"
+            />
+            <div class="target-rule-switches">
+              <el-switch v-model="currentForwardRule.enabled" :active-text="$t('enable')" :inactive-text="$t('disable')"/>
+              <el-switch v-model="currentForwardRule.blockNoticeEnabled" :active-text="$t('blockNotice')" :inactive-text="$t('blockSilent')"/>
+            </div>
+            <div class="webhook-line">
+              <span>{{ $t('tgWebhook') }}</span>
+              <code>/api/telegram/webhook</code>
+            </div>
+          </div>
+        </div>
+        <template #footer>
+          <div class="dialog-footer">
+            <el-button type="danger" plain :disabled="!currentForwardRule" @click="deleteForwardRule">
+              {{ $t('delete') }}
+            </el-button>
+            <el-button :loading="settingLoading" type="primary" @click="saveTargetForwardRules">
+              {{ $t('save') }}
+            </el-button>
+          </div>
+        </template>
+      </el-dialog>
       <el-dialog class="resend-table" v-model="showResendList" :title="$t('resendTokenList')">
         <el-table :data="resendList">
           <el-table-column :min-width="emailColumnWidth" property="key" :label="$t('domain')"
@@ -852,6 +933,7 @@ const tgSettingShow = ref(false)
 const noticePopupShow = ref(false)
 const thirdEmailShow = ref(false)
 const forwardRulesShow = ref(false)
+const targetForwardRulesShow = ref(false)
 const emailPrefixShow = ref(false)
 const showResendList = ref(false)
 const settingStore = useSettingStore();
@@ -935,6 +1017,8 @@ const emailColumnWidth = ref(0)
 const tokenColumnWidth = ref(0)
 const ruleType = ref(0)
 const ruleEmail = ref([])
+const forwardRules = ref([])
+const currentForwardRuleIndex = ref(0)
 const tgMsgFrom = ref('')
 const tgMsgTo = ref('')
 const tgMsgText = ref('')
@@ -943,6 +1027,14 @@ const tgMsgFromOption = [{label: t('show'), value: 'show'}, {label: t('hide'), v
 const tgMsgToOption = [{label: t('show'), value: 'show'}, {label: t('hide'), value: 'hide'}]
 const tgMsgTextOption = [{label: t('show'), value: 'show'}, {label: t('hide'), value: 'hide'}]
 const tgMsgLabelWidth = computed(() => locale.value === 'en' ? '120px' : '100px');
+const forwardRulesSummary = computed(() => {
+  const rules = Array.isArray(setting.value.forwardRules) ? setting.value.forwardRules : []
+  const enabledCount = rules.filter(rule => rule.enabled !== false).length
+  return `${enabledCount}/${rules.length}`
+})
+const currentForwardRule = computed(() => {
+  return forwardRules.value[currentForwardRuleIndex.value]
+})
 
 getSettings()
 getUpdate()
@@ -1131,6 +1223,78 @@ function openForwardRules() {
   forwardRulesShow.value = true
 }
 
+function openTargetForwardRules() {
+  forwardRules.value = normalizeForwardRules(setting.value.forwardRules)
+  if (forwardRules.value.length === 0) {
+    forwardRules.value.push(defaultForwardRule())
+  }
+  currentForwardRuleIndex.value = 0
+  targetForwardRulesShow.value = true
+}
+
+function defaultForwardRule() {
+  return {
+    email: 'netflix@inklazy.com',
+    enabled: true,
+    blockNoticeEnabled: true,
+    tgChatIds: [],
+    adminIds: [],
+    senderWhitelist: [],
+    keywordWhitelist: [],
+    keywordBlacklist: []
+  }
+}
+
+function normalizeForwardRules(rules) {
+  if (!Array.isArray(rules)) return []
+  return rules.map(rule => ({
+    email: (rule.email || '').trim().toLowerCase(),
+    enabled: rule.enabled !== false,
+    blockNoticeEnabled: rule.blockNoticeEnabled !== false,
+    tgChatIds: listFrom(rule.tgChatIds),
+    adminIds: listFrom(rule.adminIds).map(item => Number(item)).filter(item => !isNaN(item)),
+    senderWhitelist: listFrom(rule.senderWhitelist),
+    keywordWhitelist: listFrom(rule.keywordWhitelist),
+    keywordBlacklist: listFrom(rule.keywordBlacklist)
+  })).filter(rule => rule.email)
+}
+
+function listFrom(value) {
+  if (Array.isArray(value)) return [...new Set(value.map(item => `${item}`.trim()).filter(item => item))]
+  if (!value) return []
+  return [...new Set(`${value}`.split(/[,，\s]+/).map(item => item.trim()).filter(item => item))]
+}
+
+function addForwardRule() {
+  let rule = defaultForwardRule()
+  if (forwardRules.value.some(item => item.email === rule.email)) {
+    rule.email = ''
+  }
+  forwardRules.value.push(rule)
+  currentForwardRuleIndex.value = forwardRules.value.length - 1
+}
+
+function deleteForwardRule() {
+  const index = currentForwardRuleIndex.value
+  if (index > -1) {
+    forwardRules.value.splice(index, 1)
+    currentForwardRuleIndex.value = Math.max(0, index - 1)
+  }
+}
+
+function addForwardRuleTag(field, val, type = 'text') {
+  const rule = currentForwardRule.value
+  if (!rule) return
+  const items = listFrom(val)
+  rule[field].splice(rule[field].length - 1, 1)
+  items.forEach(item => {
+    const value = type === 'number' ? Number(item) : item
+    if ((type !== 'number' || !isNaN(value)) && !rule[field].includes(value)) {
+      rule[field].push(value)
+    }
+  })
+}
+
 function emailAddTag(val) {
   const emails = Array.from(new Set(
       val.split(/[,，]/).map(item => item.trim()).filter(item => item)
@@ -1231,6 +1395,30 @@ function ruleEmailSave() {
     ruleType: ruleType.value
   }
   editSetting(form)
+}
+
+function saveTargetForwardRules() {
+  const rules = normalizeForwardRules(forwardRules.value)
+  forwardRules.value = rules
+  currentForwardRuleIndex.value = 0
+  if (rules.some(rule => !isEmail(rule.email))) {
+    ElMessage({
+      message: t('notEmailMsg'),
+      type: 'error',
+      plain: true
+    })
+    return
+  }
+  const emails = rules.map(rule => rule.email)
+  if (emails.length !== new Set(emails).size) {
+    ElMessage({
+      message: t('duplicateEmailRule'),
+      type: 'error',
+      plain: true
+    })
+    return
+  }
+  editSetting({forwardRules: rules})
 }
 
 function doOpacityChange() {
@@ -1514,6 +1702,7 @@ function editSetting(settingForm, refreshStatus = true) {
     tgSettingShow.value = false
     thirdEmailShow.value = false
     forwardRulesShow.value = false
+    targetForwardRulesShow.value = false
     addVerifyCountShow.value = false
     regVerifyCountShow.value = false
     noticePopupShow.value = false
@@ -1780,6 +1969,15 @@ function editSetting(settingForm, refreshStatus = true) {
   }
 }
 
+:deep(.target-forward-dialog.el-dialog) {
+  width: 720px !important;
+  @media (max-width: 760px) {
+    width: calc(100% - 40px) !important;
+    margin-right: 20px !important;
+    margin-left: 20px !important;
+  }
+}
+
 .forward-dialog {
   .forward-head {
     display: flex;
@@ -1792,6 +1990,52 @@ function editSetting(settingForm, refreshStatus = true) {
       font-size: 16px;
       font-weight: bold;;
     }
+  }
+}
+
+.target-rule-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.target-rule-toolbar {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+
+  .el-button {
+    margin-top: 0;
+  }
+}
+
+.target-rule-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.target-rule-switches {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+
+.webhook-line {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: center;
+  color: var(--el-text-color-secondary);
+
+  code {
+    background: var(--extra-light-fill);
+    border: 1px solid var(--light-border);
+    border-radius: 4px;
+    padding: 4px 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 

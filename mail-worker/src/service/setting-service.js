@@ -9,13 +9,49 @@ import BizError from '../error/biz-error';
 import {t} from '../i18n/i18n'
 import verifyRecordService from './verify-record-service';
 import userContext from '../security/user-context';
+import { normalizeForwardRules } from '../utils/forward-rule-utils';
+
+function parseJsonObject(value, fallback = {}) {
+	if (!value) {
+		return fallback;
+	}
+
+	if (typeof value === 'object') {
+		return value;
+	}
+
+	try {
+		return JSON.parse(value);
+	} catch (e) {
+		console.warn(`设置 JSON 解析失败：${e.message}`);
+		return fallback;
+	}
+}
+
+function parseForwardRules(value) {
+	if (!value) {
+		return [];
+	}
+
+	if (Array.isArray(value)) {
+		return normalizeForwardRules(value);
+	}
+
+	try {
+		return normalizeForwardRules(JSON.parse(value));
+	} catch (e) {
+		console.warn(`指定邮箱转发规则解析失败：${e.message}`);
+		return [];
+	}
+}
 
 const settingService = {
 
 	async refresh(c) {
 		const settingRow = await orm(c).select().from(setting).get();
-		settingRow.resendTokens = JSON.parse(settingRow.resendTokens);
-		c.set('setting', settingRow);
+		settingRow.resendTokens = parseJsonObject(settingRow.resendTokens, {});
+		settingRow.forwardRules = parseForwardRules(settingRow.forwardRules);
+		c.set?.('setting', settingRow);
 		await c.env.kv.put(KvConst.SETTING, JSON.stringify(settingRow));
 	},
 
@@ -45,6 +81,8 @@ const settingService = {
 			throw new BizError(t('noDomainVariable'));
 		}
 
+		setting.resendTokens = parseJsonObject(setting.resendTokens, {});
+		setting.forwardRules = parseForwardRules(setting.forwardRules);
 		domainList = domainList.map(item => '@' + item);
 		setting.domainList = domainList;
 
@@ -126,10 +164,14 @@ const settingService = {
 
 	async set(c, params) {
 		const settingData = await this.query(c);
-		let resendTokens = { ...settingData.resendTokens, ...params.resendTokens };
-		Object.keys(resendTokens).forEach(domain => {
-			if (!resendTokens[domain]) delete resendTokens[domain];
-		});
+		let resendTokens = settingData.resendTokens;
+
+		if (params.resendTokens !== undefined) {
+			resendTokens = { ...settingData.resendTokens, ...params.resendTokens };
+			Object.keys(resendTokens).forEach(domain => {
+				if (!resendTokens[domain]) delete resendTokens[domain];
+			});
+		}
 
 		if (Array.isArray(params.emailPrefixFilter)) {
 			params.emailPrefixFilter = params.emailPrefixFilter + '';
@@ -144,7 +186,14 @@ const settingService = {
 			params.loginDarkenFactor = Number.isNaN(factor) ? 0 : Math.min(1, Math.max(0, factor));
 		}
 
-		params.resendTokens = JSON.stringify(resendTokens);
+		if (params.forwardRules !== undefined) {
+			params.forwardRules = JSON.stringify(normalizeForwardRules(params.forwardRules));
+		}
+
+		if (params.resendTokens !== undefined) {
+			params.resendTokens = JSON.stringify(resendTokens);
+		}
+
 		await orm(c).update(setting).set({ ...params }).returning().get();
 		await this.refresh(c);
 	},

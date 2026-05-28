@@ -11,8 +11,18 @@ import jwtUtils from '../utils/jwt-utils';
 import emailMsgTemplate from '../template/email-msg';
 import emailTextTemplate from '../template/email-text';
 import emailHtmlTemplate from '../template/email-html';
-import verifyUtils from '../utils/verify-utils';
 import domainUtils from "../utils/domain-uitls";
+
+function normalizeChatIds(value) {
+	if (Array.isArray(value)) {
+		return value.map(item => String(item).trim()).filter(Boolean);
+	}
+
+	return String(value || '')
+		.split(',')
+		.map(item => item.trim())
+		.filter(Boolean);
+}
 
 const telegramService = {
 
@@ -43,11 +53,15 @@ const telegramService = {
 
 	},
 
-	async sendEmailToBot(c, email) {
+	async sendEmailToBot(c, email, options = {}) {
 
 		const { tgBotToken, tgChatId, customDomain, tgMsgTo, tgMsgFrom, tgMsgText } = await settingService.query(c);
+		const botToken = options.botToken || tgBotToken;
+		const tgChatIds = normalizeChatIds(options.chatIds || tgChatId);
 
-		const tgChatIds = tgChatId.split(',');
+		if (!botToken || tgChatIds.length === 0) {
+			return;
+		}
 
 		const jwtToken = await jwtUtils.generateToken(c, { emailId: email.emailId })
 
@@ -72,7 +86,7 @@ const telegramService = {
 
 		await Promise.all(tgChatIds.map(async chatId => {
 			try {
-				const res = await fetch(`https://api.telegram.org/bot${tgBotToken}/sendMessage`, {
+				const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
 					method: 'POST',
 					headers: {
 						'Content-Type': 'application/json'
@@ -94,6 +108,35 @@ const telegramService = {
 			}
 		}));
 
+	},
+
+	async sendMessage(c, { chatId, text, botToken }) {
+		const setting = await settingService.query(c);
+		const token = botToken || setting.tgBotToken;
+
+		if (!token || !chatId || !text) {
+			return;
+		}
+
+		try {
+			const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({
+					chat_id: chatId,
+					parse_mode: 'HTML',
+					text
+				})
+			});
+
+			if (!res.ok) {
+				console.error(`发送 Telegram 消息失败 status: ${res.status} response: ${await res.text()}`);
+			}
+		} catch (e) {
+			console.error(`发送 Telegram 消息失败:`, e.message);
+		}
 	}
 
 }
