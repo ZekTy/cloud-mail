@@ -24,6 +24,29 @@ function normalizeChatIds(value) {
 		.filter(Boolean);
 }
 
+function isGroupChat(chatId) {
+	return String(chatId || '').trim().startsWith('-');
+}
+
+function buildInlineKeyboard(chatId, webAppUrl, email) {
+	const viewButton = isGroupChat(chatId)
+		? { text: 'View', url: webAppUrl }
+		: { text: 'View', web_app: { url: webAppUrl } };
+
+	const inlineKeyboard = [[viewButton]];
+
+	if (email.code) {
+		inlineKeyboard.push([
+			{
+				text: email.code,
+				copy_text: { text: email.code }
+			}
+		]);
+	}
+
+	return inlineKeyboard;
+}
+
 const telegramService = {
 
 	async getEmailContent(c, params) {
@@ -66,26 +89,10 @@ const telegramService = {
 		const jwtToken = await jwtUtils.generateToken(c, { emailId: email.emailId })
 
 		const webAppUrl = customDomain ? `${domainUtils.toOssDomain(customDomain)}/api/telegram/getEmail/${jwtToken}` : 'https://www.cloudflare.com/404'
-		const inlineKeyboard = [
-			[
-				{
-					text: 'View',
-					web_app: { url: webAppUrl }
-				}
-			]
-		];
-
-		if (email.code) {
-			inlineKeyboard.push([
-				{
-					text: email.code,
-					copy_text: { text: email.code }
-				}
-			]);
-		}
 
 		await Promise.all(tgChatIds.map(async chatId => {
 			try {
+				const inlineKeyboard = buildInlineKeyboard(chatId, webAppUrl, email);
 				const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
 					method: 'POST',
 					headers: {
